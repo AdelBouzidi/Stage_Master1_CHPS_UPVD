@@ -1,0 +1,443 @@
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# kubectl get pods
+NAME                             READY   STATUS    RESTARTS      AGE
+flask-webapp-c99565cb7-gr47j     1/1     Running   5 (43m ago)   7d2h
+flask-webapp2-5d4c588885-rxfn8   1/1     Running   5 (43m ago)   7d2h
+nginx-7854ff8877-njlwq           1/1     Running   5 (43m ago)   7d2h
+
+*******************************************************************************
+
+[root@master1 stage]# ./start_evaluation.sh
+Déploiement du service d’évaluation séquentielle...
+deployment.apps/eval-seq created
+service/eval-seq-service created
+Déploiement du service d’évaluation distribuée...
+deployment.apps/eval-dis created
+service/eval-dis-service created
+Évaluateurs déployés avec succès.
+NAME                             READY   STATUS              RESTARTS      AGE
+eval-dis-58b7c9c49d-b8tjb        0/1     ContainerCreating   0             0s
+eval-seq-7b67dd994c-gfn8s        0/1     ContainerCreating   0             1s
+flask-webapp-c99565cb7-gr47j     1/1     Running             5 (43m ago)   7d2h
+flask-webapp2-5d4c588885-rxfn8   1/1     Running             5 (43m ago)   7d2h
+nginx-7854ff8877-njlwq           1/1     Running             5 (43m ago)   7d2h
+
+*******************************************************************************
+
+[root@master1 stage]# ./start_desribue_et_sequentiel.sh
+Lancement parallèle des jobs distribué et séquentiel...
+Job distribué lancé (PID=49712)
+Job séquentiel lancé (PID=49713)
+[09:30:18] Lancement initial
+Suppression de l'ancien MPIJob (si existe)...
+[09:30:18] Lancement manuel FORCÉ de l'entraînement séquentiel
+Suppression de TOUS les pods 'train-model' (en cours ou terminés)...
+Déploiement du nouveau MPIJob...
+Suppression temporaire du CronJob 'train-model'...
+mpijob.kubeflow.org/lstm-horovod-job created
+Réapplication du CronJob 'train-model'...
+Nouvelle session MPIJob lancée à 2025-06-03 09:30:18
+En attente jusqu’à la prochaine heure pleine dans 1782s...
+cronjob.batch/train-model created
+Création du Job forcé : train-model-manual-1748935819
+job.batch/train-model-manual-1748935819 created
+Lancement FORCÉ terminé à 2025-06-03 09:30:19
+
+
+====> (en ouvrant une nouvelle session du terminal =>)
+
+
+Lancement de la vérification post-démarrage Kubernetes...
+
+État des nœuds :
+[sudo] Mot de passe de adel :
+NAME      STATUS   ROLES           AGE   VERSION    INTERNAL-IP     EXTERNAL-IP   OS-IMAGE          KERNEL-VERSION          CONTAINER-RUNTIME
+master1   Ready    control-plane   18d   v1.29.15   192.168.56.10   <none>        CentOS Stream 9   5.14.0-583.el9.x86_64   docker://28.1.1
+worker1   Ready    <none>          18d   v1.30.12   192.168.56.11   <none>        CentOS Stream 9   5.14.0-583.el9.x86_64   docker://28.1.1
+
+Pods dans tous les namespaces :
+NAMESPACE         NAME                                                READY   STATUS              RESTARTS        AGE     IP               NODE      NOMINATED NODE   READINESS GATES
+default           eval-dis-58b7c9c49d-b8tjb                           1/1     Running             0               25s     10.244.235.170   worker1   <none>           <none>
+default           eval-seq-7b67dd994c-gfn8s                           1/1     Running             0               26s     10.244.235.162   worker1   <none>           <none>
+default           flask-webapp-c99565cb7-gr47j                        1/1     Running             5 (43m ago)     7d2h    10.244.235.152   worker1   <none>           <none>
+default           flask-webapp2-5d4c588885-rxfn8                      1/1     Running             5 (43m ago)     7d2h    10.244.235.146   worker1   <none>           <none>
+default           lstm-horovod-job-launcher-vwlvr                     0/1     ContainerCreating   0               15s     <none>           worker1   <none>           <none>
+default           lstm-horovod-job-worker-0                           0/1     ContainerCreating   0               15s     <none>           worker1   <none>           <none>
+default           lstm-horovod-job-worker-1                           0/1     ContainerCreating   0               15s     <none>           worker1   <none>           <none>
+default           nginx-7854ff8877-njlwq                              1/1     Running             5 (43m ago)     7d2h    10.244.235.158   worker1   <none>           <none>
+default           train-model-manual-1748935819-z545k                 0/1     ContainerCreating   0               15s     <none>           worker1   <none>           <none>
+istio-ingress     istio-ingress-6f45b695d-zwll4                       1/1     Running             5 (43m ago)     6d11h   10.244.235.165   worker1   <none>           <none>
+istio-system      istiod-6d7d4b4d7c-46psr                             1/1     Running             5 (43m ago)     7d2h    10.244.235.141   worker1   <none>           <none>
+kube-system       calico-kube-controllers-658d97c59c-m8cs4            1/1     Running             16 (44m ago)    16d     10.244.137.108   master1   <none>           <none>
+kube-system       calico-node-fx5gg                                   1/1     Running             18 (44m ago)    17d     192.168.56.10    master1   <none>           <none>
+kube-system       calico-node-hzphs                                   1/1     Running             3 (43m ago)     2d19h   192.168.56.11    worker1   <none>           <none>
+kube-system       coredns-76f75df574-r4n4f                            1/1     Running             14 (44m ago)    16d     10.244.137.107   master1   <none>           <none>
+kube-system       coredns-76f75df574-zxv8m                            1/1     Running             14 (44m ago)    16d     10.244.137.109   master1   <none>           <none>
+kube-system       etcd-master1                                        1/1     Running             46 (44m ago)    18d     192.168.56.10    master1   <none>           <none>
+kube-system       grafana-7cffc5f8fd-pq5qf                            1/1     Running             0               40m     10.244.235.178   worker1   <none>           <none>
+kube-system       kube-apiserver-master1                              1/1     Running             43 (44m ago)    18d     192.168.56.10    master1   <none>           <none>
+kube-system       kube-controller-manager-master1                     1/1     Running             69 (44m ago)    18d     192.168.56.10    master1   <none>           <none>
+kube-system       kube-proxy-5sppk                                    1/1     Running             19 (44m ago)    18d     192.168.56.10    master1   <none>           <none>
+kube-system       kube-proxy-gkzqj                                    1/1     Running             20 (43m ago)    18d     192.168.56.11    worker1   <none>           <none>
+kube-system       kube-scheduler-master1                              1/1     Running             72 (44m ago)    18d     192.168.56.10    master1   <none>           <none>
+kube-system       lstm-evaluator-6bdcff5b95-2xjs4                     1/1     Running             30 (43m ago)    7d2h    10.244.235.157   worker1   <none>           <none>
+kube-system       metrics-server-75bf97fcc9-skhlw                     0/1     Running             3 (41m ago)     39h     10.244.235.167   worker1   <none>           <none>
+kube-system       prometheus-alertmanager-0                           1/1     Running             6 (43m ago)     6d11h   10.244.235.175   worker1   <none>           <none>
+kube-system       prometheus-kube-state-metrics-99d7bdbfc-mrv2v       1/1     Running             12 (43m ago)    7d2h    10.244.235.132   worker1   <none>           <none>
+kube-system       prometheus-prometheus-node-exporter-72xpj           1/1     Running             2 (44m ago)     39h     192.168.56.10    master1   <none>           <none>
+kube-system       prometheus-prometheus-node-exporter-n8p6s           1/1     Running             22 (43m ago)    17d     192.168.56.11    worker1   <none>           <none>
+kube-system       prometheus-prometheus-pushgateway-9847c5479-dfsb9   1/1     Running             5 (43m ago)     7d2h    10.244.235.149   worker1   <none>           <none>
+kube-system       prometheus-server-5f669bfc7c-s7cdr                  2/2     Running             0               40m     10.244.235.186   worker1   <none>           <none>
+longhorn-system   csi-attacher-56cb5b49d5-44qfj                       1/1     Running             21 (41m ago)    7d2h    10.244.235.133   worker1   <none>           <none>
+longhorn-system   csi-attacher-56cb5b49d5-bht4h                       1/1     Running             21 (40m ago)    7d2h    10.244.235.139   worker1   <none>           <none>
+longhorn-system   csi-attacher-56cb5b49d5-j57m6                       1/1     Running             21 (41m ago)    7d2h    10.244.235.166   worker1   <none>           <none>
+longhorn-system   csi-provisioner-6b77c847b8-cfcws                    1/1     Running             22 (41m ago)    7d2h    10.244.235.185   worker1   <none>           <none>
+longhorn-system   csi-provisioner-6b77c847b8-fzjj6                    1/1     Running             20 (41m ago)    7d2h    10.244.235.160   worker1   <none>           <none>
+longhorn-system   csi-provisioner-6b77c847b8-wdtwz                    1/1     Running             23 (41m ago)    7d2h    10.244.235.130   worker1   <none>           <none>
+longhorn-system   csi-resizer-7c7b54f9f9-brftb                        1/1     Running             24 (41m ago)    7d2h    10.244.235.138   worker1   <none>           <none>
+longhorn-system   csi-resizer-7c7b54f9f9-ppgxb                        1/1     Running             22 (41m ago)    7d2h    10.244.235.151   worker1   <none>           <none>
+longhorn-system   csi-resizer-7c7b54f9f9-qwbxm                        1/1     Running             23 (41m ago)    7d2h    10.244.235.129   worker1   <none>           <none>
+longhorn-system   csi-snapshotter-6cf7cc86ff-fj7zv                    1/1     Running             21 (41m ago)    7d2h    10.244.235.183   worker1   <none>           <none>
+longhorn-system   csi-snapshotter-6cf7cc86ff-kvxn9                    1/1     Running             22 (41m ago)    7d2h    10.244.235.156   worker1   <none>           <none>
+longhorn-system   csi-snapshotter-6cf7cc86ff-vdlmv                    1/1     Running             19 (41m ago)    7d2h    10.244.235.164   worker1   <none>           <none>
+longhorn-system   engine-image-ei-db6c2b6f-89qtw                      1/1     Running             69 (41m ago)    17d     10.244.235.190   worker1   <none>           <none>
+longhorn-system   instance-manager-8bc69db99bdbea62b39cd7ee17bc8a5b   1/1     Running             0               41m     10.244.235.171   worker1   <none>           <none>
+longhorn-system   longhorn-csi-plugin-lwfqh                           3/3     Running             145 (41m ago)   17d     10.244.235.134   worker1   <none>           <none>
+longhorn-system   longhorn-driver-deployer-784655995f-7xjl9           1/1     Running             7 (43m ago)     7d2h    10.244.235.135   worker1   <none>           <none>
+longhorn-system   longhorn-manager-x9q67                              2/2     Running             38 (43m ago)    17d     10.244.235.155   worker1   <none>           <none>
+longhorn-system   longhorn-ui-86dc9db97d-4xcx7                        1/1     Running             14 (42m ago)    7d2h    10.244.235.179   worker1   <none>           <none>
+longhorn-system   longhorn-ui-86dc9db97d-5j5zl                        1/1     Running             10 (42m ago)    7d2h    10.244.235.136   worker1   <none>           <none>
+metallb-system    metallb-controller-758987bc5-wkp4f                  1/1     Running             20 (41m ago)    7d2h    10.244.235.184   worker1   <none>           <none>
+metallb-system    metallb-speaker-r29sn                               4/4     Running             418 (39m ago)   17d     192.168.56.11    worker1   <none>           <none>
+metallb-system    metallb-speaker-x49dq                               4/4     Running             49 (19m ago)    39h     192.168.56.10    master1   <none>           <none>
+mpi-operator      mpi-operator-7477b5bdbd-c8498                       1/1     Running             9 (43m ago)     7d2h    10.244.235.168   worker1   <none>           <none>
+
+Composants du plan de contrôle :
+Warning: v1 ComponentStatus is deprecated in v1.19+
+NAME                 STATUS    MESSAGE   ERROR
+scheduler            Healthy   ok
+etcd-0               Healthy   ok
+controller-manager   Healthy   ok
+
+Événements récents :
+default           22s         Normal    Pulled                         pod/eval-dis-58b7c9c49d-b8tjb                                           Container image "eval-dis:v5" already present on machine
+default           21s         Normal    Started                        pod/eval-dis-58b7c9c49d-b8tjb                                           Started container eval-dis
+default           19s         Normal    nodeAssigned                   service/eval-dis-service                                                announcing from node "worker1" with protocol "layer2"
+default           17s         Normal    MPIJobCreated                  mpijob/lstm-horovod-job                                                 MPIJob default/lstm-horovod-job is created.
+default           15s         Normal    Scheduled                      pod/lstm-horovod-job-worker-1                                           Successfully assigned default/lstm-horovod-job-worker-1 to worker1
+default           16s         Normal    Scheduled                      pod/lstm-horovod-job-worker-0                                           Successfully assigned default/lstm-horovod-job-worker-0 to worker1
+default           16s         Normal    SuccessfulCreate               job/lstm-horovod-job-launcher                                           Created pod: lstm-horovod-job-launcher-vwlvr
+default           15s         Normal    Scheduled                      pod/lstm-horovod-job-launcher-vwlvr                                     Successfully assigned default/lstm-horovod-job-launcher-vwlvr to worker1
+default           16s         Normal    SuccessfulCreate               job/train-model-manual-1748935819                                       Created pod: train-model-manual-1748935819-z545k
+default           16s         Warning   SetPodTemplateRestartPolicy    mpijob/lstm-horovod-job                                                 Restart policy in pod template overridden by restart policy in replica spec
+default           15s         Normal    Scheduled                      pod/train-model-manual-1748935819-z545k                                 Successfully assigned default/train-model-manual-1748935819-z545k to worker1
+default           16s         Warning   UnexpectedJob                  cronjob/train-model                                                     Saw a job that the controller did not create or forgot: train-model-manual-1748935819
+default           4s          Normal    Pulled                         pod/lstm-horovod-job-launcher-vwlvr                                     Container image "lstm-horovod:latest" already present on machine
+default           3s          Normal    Pulled                         pod/train-model-manual-1748935819-z545k                                 Container image "lstm-trainer:test" already present on machine
+default           3s          Normal    Created                        pod/train-model-manual-1748935819-z545k                                 Created container: trainer
+default           3s          Normal    Created                        pod/lstm-horovod-job-launcher-vwlvr                                     Created container: lstm-trainer
+default           2s          Normal    Pulled                         pod/lstm-horovod-job-worker-1                                           Container image "lstm-horovod:latest" already present on machine
+default           2s          Normal    Pulled                         pod/lstm-horovod-job-worker-0                                           Container image "lstm-horovod:latest" already present on machine
+default           1s          Normal    Created                        pod/lstm-horovod-job-worker-1                                           Created container: lstm-trainer
+default           1s          Normal    Created                        pod/lstm-horovod-job-worker-0                                           Created container: lstm-trainer
+
+PVC (Persistent Volume Claims) :
+NAMESPACE     NAME      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+kube-system   grafana   Bound    pvc-920e23fb-072a-4b8d-b87a-3b491840df1f   6Gi        RWO            longhorn       <unset>                 16d
+
+PV (Persistent Volumes) :
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                 STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+pvc-920e23fb-072a-4b8d-b87a-3b491840df1f   6Gi        RWO            Delete           Bound    kube-system/grafana   longhorn       <unset>                          16d
+
+Services déployés :
+NAMESPACE         NAME                                  TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)                                      AGE
+default           eval-dis-service                      LoadBalancer   10.104.210.233   192.168.56.39   6007:31735/TCP                               27s
+default           eval-seq-service                      LoadBalancer   10.96.144.77     192.168.56.37   6006:31582/TCP                               28s
+default           flask-webapp-service                  LoadBalancer   10.99.228.174    192.168.56.35   80:31541/TCP                                 15d
+default           flask-webapp2-service                 LoadBalancer   10.106.99.231    192.168.56.36   80:32395/TCP                                 15d
+default           kubernetes                            ClusterIP      10.96.0.1        <none>          443/TCP                                      18d
+default           lstm-distributed                      ClusterIP      None             <none>          2222/TCP                                     8d
+default           lstm-horovod-job                      ClusterIP      None             <none>          <none>                                       18s
+default           nginx                                 LoadBalancer   10.101.182.141   192.168.56.30   80:31291/TCP                                 17d
+istio-ingress     istio-ingress                         LoadBalancer   10.102.42.200    192.168.56.31   15021:32399/TCP,80:30679/TCP,443:32070/TCP   17d
+istio-system      istiod                                ClusterIP      10.109.210.179   <none>          15010/TCP,15012/TCP,443/TCP,15014/TCP        17d
+kube-system       grafana                               LoadBalancer   10.111.150.46    192.168.56.34   9091:32078/TCP                               16d
+kube-system       kube-dns                              ClusterIP      10.96.0.10       <none>          53/UDP,53/TCP,9153/TCP                       18d
+kube-system       lstm-evaluator-service                LoadBalancer   10.100.33.50     192.168.56.38   6006:30964/TCP                               15d
+kube-system       metrics-server                        ClusterIP      10.110.89.239    <none>          443/TCP                                      39h
+kube-system       prometheus-alertmanager               ClusterIP      10.109.129.220   <none>          9093/TCP                                     17d
+kube-system       prometheus-alertmanager-headless      ClusterIP      None             <none>          9093/TCP                                     17d
+kube-system       prometheus-kube-state-metrics         ClusterIP      10.103.136.86    <none>          8080/TCP                                     17d
+kube-system       prometheus-prometheus-node-exporter   ClusterIP      10.106.74.74     <none>          9100/TCP                                     17d
+kube-system       prometheus-prometheus-pushgateway     ClusterIP      10.106.222.69    <none>          9091/TCP                                     17d
+kube-system       prometheus-server                     LoadBalancer   10.105.133.134   192.168.56.33   9090:31545/TCP                               17d
+longhorn-system   longhorn-admission-webhook            ClusterIP      10.108.215.97    <none>          9502/TCP                                     17d
+longhorn-system   longhorn-backend                      ClusterIP      10.102.57.171    <none>          9500/TCP                                     17d
+longhorn-system   longhorn-conversion-webhook           ClusterIP      10.102.196.142   <none>          9501/TCP                                     17d
+longhorn-system   longhorn-frontend                     LoadBalancer   10.103.174.61    192.168.56.32   80:32408/TCP                                 17d
+longhorn-system   longhorn-recovery-backend             ClusterIP      10.100.38.224    <none>          9503/TCP                                     17d
+metallb-system    metallb-webhook-service               ClusterIP      10.106.87.180    <none>          443/TCP                                      17d
+
+Volumes Longhorn (si présent) :
+NAME                                       DATA ENGINE   STATE      ROBUSTNESS   SCHEDULED   SIZE         NODE      AGE
+pvc-920e23fb-072a-4b8d-b87a-3b491840df1f   v1            attached   degraded                 6442450944   worker1   16d
+
+Utilisation des disques (df -h) :
+Sys. de fichiers         Taille Utilisé Dispo Uti% Monté sur
+/dev/mapper/cs_vbox-root    88G     57G   32G  65% /
+/dev/mapper/cs_vbox-root    88G     57G   32G  65% /
+/dev/mapper/cs_vbox-root    88G     57G   32G  65% /
+/dev/mapper/cs_vbox-root    88G     57G   32G  65% /
+
+Utilisation CPU/RAM (top 5 processus) :
+top - 09:30:37 up 44 min,  2 users,  load average: 7,29, 3,46, 2,27
+Tasks: 260 total,   1 running, 259 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 13,6 us, 18,2 sy,  0,0 ni, 61,4 id,  0,0 wa,  4,5 hi,  2,3 si,  0,0 st
+MiB Mem :   6577,7 total,   1502,4 free,   3030,8 used,   2313,4 buff/cache
+MiB Swap:   5120,0 total,   5120,0 free,      0,0 used.   3546,9 avail Mem
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   1385 root      20   0 2799932 111704  59904 S  10,0   1,7   1:58.54 dockerd
+   2297 root      20   0 2153388 111244  68736 S  10,0   1,7   1:44.52 kubelet
+  50205 adel      20   0   20524   7552   6016 R  10,0   0,1   0:00.06 top
+   2104 root      20   0 2091868  56632  36608 S   5,0   0,8   1:50.90 cri-dockerd
+   2697 root      20   0 2432828   1,1g  84736 S   5,0  17,9   8:36.34 kube-apiserver
+      1 root      20   0  109660  17412  11112 S   0,0   0,3   0:06.85 systemd
+      2 root      20   0       0      0      0 S   0,0   0,0   0:00.01 kthreadd
+      3 root      20   0       0      0      0 S   0,0   0,0   0:00.00 pool_workqueue_
+
+Utilisation des ressources Kubernetes (nodes) :
+metrics-server non disponible
+
+Utilisation des ressources Kubernetes (pods) :
+metrics-server non disponible
+
+Nombre de pods par namespace :
+     20 kube-system
+     19 longhorn-system
+      9 default
+      3 metallb-system
+      1 mpi-operator
+      1 istio-system
+      1 istio-ingress
+
+🔧 Infos des nœuds (CPU, RAM, OS) :
+Name:               master1
+  cpu:                2
+  memory:             6735588Ki
+  cpu:                2
+  memory:             6633188Ki
+  Kernel Version:             5.14.0-583.el9.x86_64
+  OS Image:                   CentOS Stream 9
+Name:               worker1
+  cpu:                2
+  memory:             9780976Ki
+  cpu:                2
+  memory:             9678576Ki
+  Kernel Version:             5.14.0-583.el9.x86_64
+  OS Image:                   CentOS Stream 9
+
+Images Docker utilisées (si Docker actif) :
+REPOSITORY                                TAG         IMAGE ID       CREATED         SIZE
+eval-seq                                  v7          9c419065253e   34 hours ago    2.93GB
+eval-dis                                  v5          c88caf10b9af   36 hours ago    2.93GB
+eval-dis                                  v4          0e1f2b3386b4   37 hours ago    2.93GB
+python                                    3.10-slim   e6d8b768c22f   3 weeks ago     127MB
+quay.io/prometheus/node-exporter          v1.9.1      255ec253085f   2 months ago    25MB
+registry.k8s.io/kube-apiserver            v1.29.15    f44c6888a2d2   2 months ago    128MB
+registry.k8s.io/kube-scheduler            v1.29.15    9ea0bd82ed4f   2 months ago    60.7MB
+registry.k8s.io/kube-controller-manager   v1.29.15    b0cdcf76ac8e   2 months ago    123MB
+registry.k8s.io/kube-proxy                v1.29.15    f71614796eb7   2 months ago    83.4MB
+quay.io/metallb/speaker                   v0.14.9     dacabb789863   5 months ago    127MB
+registry.k8s.io/etcd                      3.5.16-0    a9e7e6b294ba   8 months ago    150MB
+registry.k8s.io/pause                     3.10        873ed7510279   12 months ago   736kB
+quay.io/frrouting/frr                     9.1.0       e81800e2198c   18 months ago   163MB
+registry.k8s.io/coredns/coredns           v1.11.1     cbb01a7bd410   21 months ago   59.8MB
+calico/kube-controllers                   v3.25.0     5e785d005ccc   2 years ago     71.6MB
+calico/cni                                v3.25.0     d70a5947d57e   2 years ago     198MB
+calico/node                               v3.25.0     08616d26b8e7   2 years ago     245MB
+
+Vérification terminée.
+
+
+*******************************************************************************
+
+[adel@master1 ~]$ su
+Mot de passe :
+
+*******************************************************************************
+
+
+
+[root@master1 adel]# kubectl get all
+NAME                                      READY   STATUS    RESTARTS      AGE
+pod/eval-dis-58b7c9c49d-b8tjb             1/1     Running   0             59s
+pod/eval-seq-7b67dd994c-gfn8s             1/1     Running   0             60s
+pod/flask-webapp-c99565cb7-gr47j          1/1     Running   5 (44m ago)   7d2h
+pod/flask-webapp2-5d4c588885-rxfn8        1/1     Running   5 (44m ago)   7d2h
+pod/lstm-horovod-job-launcher-vwlvr       1/1     Running   0             49s
+pod/lstm-horovod-job-worker-0             1/1     Running   0             49s
+pod/lstm-horovod-job-worker-1             1/1     Running   0             49s
+pod/nginx-7854ff8877-njlwq                1/1     Running   5 (44m ago)   7d2h
+pod/train-model-manual-1748935819-z545k   1/1     Running   0             49s
+
+NAME                            TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)          AGE
+service/eval-dis-service        LoadBalancer   10.104.210.233   192.168.56.39   6007:31735/TCP   59s
+service/eval-seq-service        LoadBalancer   10.96.144.77     192.168.56.37   6006:31582/TCP   60s
+service/flask-webapp-service    LoadBalancer   10.99.228.174    192.168.56.35   80:31541/TCP     15d
+service/flask-webapp2-service   LoadBalancer   10.106.99.231    192.168.56.36   80:32395/TCP     15d
+service/kubernetes              ClusterIP      10.96.0.1        <none>          443/TCP          18d
+service/lstm-distributed        ClusterIP      None             <none>          2222/TCP         8d
+service/lstm-horovod-job        ClusterIP      None             <none>          <none>           50s
+service/nginx                   LoadBalancer   10.101.182.141   192.168.56.30   80:31291/TCP     17d
+
+NAME                            READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/eval-dis        1/1     1            1           59s
+deployment.apps/eval-seq        1/1     1            1           60s
+deployment.apps/flask-webapp    1/1     1            1           15d
+deployment.apps/flask-webapp2   1/1     1            1           15d
+deployment.apps/nginx           1/1     1            1           17d
+
+NAME                                       DESIRED   CURRENT   READY   AGE
+replicaset.apps/eval-dis-58b7c9c49d        1         1         1       59s
+replicaset.apps/eval-seq-7b67dd994c        1         1         1       60s
+replicaset.apps/flask-webapp-c99565cb7     1         1         1       15d
+replicaset.apps/flask-webapp2-5d4c588885   1         1         1       15d
+replicaset.apps/nginx-7854ff8877           1         1         1       17d
+
+NAME                        SCHEDULE    SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+cronjob.batch/train-model   0 * * * *   False     0        <none>          49s
+
+NAME                                      COMPLETIONS   DURATION   AGE
+job.batch/lstm-horovod-job-launcher       0/1           49s        49s
+job.batch/train-model-manual-1748935819   0/1           49s        49s
+
+*******************************************************************************
+
+****************
+******************
+********************
+<< p = Kubectl get pods >>
+********************
+******************
+****************
+
+[root@master1 adel]# p 
+NAME                                  READY   STATUS    RESTARTS      AGE
+eval-dis-58b7c9c49d-b8tjb             1/1     Running   0             66s
+eval-seq-7b67dd994c-gfn8s             1/1     Running   0             67s
+flask-webapp-c99565cb7-gr47j          1/1     Running   5 (44m ago)   7d2h
+flask-webapp2-5d4c588885-rxfn8        1/1     Running   5 (44m ago)   7d2h
+lstm-horovod-job-launcher-vwlvr       1/1     Running   0             56s
+lstm-horovod-job-worker-0             1/1     Running   0             56s
+lstm-horovod-job-worker-1             1/1     Running   0             56s
+nginx-7854ff8877-njlwq                1/1     Running   5 (44m ago)   7d2h
+train-model-manual-1748935819-z545k   1/1     Running   0             56s
+
+*******************************************************************************
+
+[root@master1 adel]# kubectl logs lstm-horovod-job-launcher-vwlvr
+
+*******************************************************************************
+
+[root@master1 adel]# kubectl logs lstm-horovod-job-launcher-vwlvr
+2025-06-03 07:31:55.967112: W tensorflow/stream_executor/platform/default/dso_loader.cc:64] Could not load dynamic library 'libcuda.so.1'; dlerror: libcuda.so.1: cannot open shared object file: No such file or directory; LD_LIBRARY_PATH: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+2025-06-03 07:31:55.972380: W tensorflow/stream_executor/cuda/cuda_driver.cc:269] failed call to cuInit: UNKNOWN ERROR (303)
+2025-06-03 07:31:55.972562: I tensorflow/stream_executor/cuda/cuda_diagnostics.cc:156] kernel driver does not appear to be running on this host (lstm-horovod-job-launcher): /proc/driver/nvidia/version does not exist
+2025-06-03 07:31:55.976046: I tensorflow/core/platform/cpu_feature_guard.cc:193] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  AVX2 FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2025-06-03 07:31:58.995311: W tensorflow/core/framework/cpu_allocator_impl.cc:82] Allocation of 701453500 exceeds 10% of free system memory.
+Epoch 1/15
+
+
+************
+****************
+********************
+Epoch 1/15 Pour le moment PARCE que j'ai fait le test avec epoch = 15
+********************
+****************
+************
+
+*******************************************************************************
+
+[root@master1 adel]# kubectl logs lstm-horovod-job-worker-0
+Server listening on 0.0.0.0 port 22.
+Server listening on :: port 22.
+
+*******************************************************************************
+
+[root@master1 adel]# kubectl logs lstm-horovod-job-worker-1
+Server listening on 0.0.0.0 port 22.
+Server listening on :: port 22.
+
+*******************************************************************************
+
+[root@master1 adel]# kubectl logs train-model-manual-1748935819-z545k
+2025-06-03 07:30:59.729180: I external/local_xla/xla/tsl/cuda/cudart_stub.cc:32] Could not find cuda drivers on your machine, GPU will not be used.
+2025-06-03 07:31:00.635454: I external/local_xla/xla/tsl/cuda/cudart_stub.cc:32] Could not find cuda drivers on your machine, GPU will not be used.
+2025-06-03 07:31:01.291983: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1748935862.061299       7 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1748935862.215621       7 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1748935863.152562       7 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1748935863.152668       7 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1748935863.152752       7 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1748935863.152861       7 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+2025-06-03 07:31:03.225158: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+/usr/local/lib/python3.10/site-packages/keras/src/layers/core/embedding.py:97: UserWarning: Argument `input_length` is deprecated. Just remove it.
+  warnings.warn(
+2025-06-03 07:32:01.146589: E external/local_xla/xla/stream_executor/cuda/cuda_platform.cc:51] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)
+Nouvelle exécution du script LSTM : entraînement et sauvegarde...
+Model: "sequential"
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Layer (type)                    ┃ Output Shape           ┃       Param # ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ embedding (Embedding)           │ (None, 24, 10)         │        48,950 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ lstm (LSTM)                     │ (None, 100)            │        44,400 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ dropout (Dropout)               │ (None, 100)            │             0 │
+├─────────────────────────────────┼────────────────────────┼───────────────┤
+│ dense (Dense)                   │ (None, 4895)           │       494,395 │
+└─────────────────────────────────┴────────────────────────┴───────────────┘
+ Total params: 587,745 (2.24 MB)
+ Trainable params: 587,745 (2.24 MB)
+ Non-trainable params: 0 (0.00 B)
+2025-06-03 07:32:19.668446: W external/local_xla/xla/tsl/framework/cpu_allocator_impl.cc:83] Allocation of 779401480 exceeds 10% of free system memory.
+Epoch 1/3
+ 170/1244 ��━━━━━━━━━━━━━━━━━━ 3:29 195ms/step - loss: 7.5210
+*******************************************************************************
+
+[root@master1 adel]# ll -tl /mnt/nfs-share/lstm_data/ ## etat actuele de notre volume partagé
+total 22864
+-rw-r--r--. 1 root root   7088276  3 juin  09:35 lstm_horovod.keras
+drwxrwx---. 2 root vboxsf    4096  3 juin  08:56 py_and_txt_in_nfs_03_06
+-rw-r--r--. 1 root root    194054  3 juin  00:18 tokenizer_horovod.pkl
+-rw-r--r--. 1 root root      1106  2 juin  22:36 completions.json
+-rw-r--r--. 1 root root    194065  2 juin  22:35 tokenizer.pkl
+-rw-r--r--. 1 root root   7082886  2 juin  22:35 lstm_text_autocomplete.keras
+-rwxr-x---. 1 root root      9792  2 juin  20:54 evaluator.py
+drwxr-xr-x. 8 root root      4096  1 juin  23:59 lstm_images
+-rw-r--r--. 1 root root      2947  1 juin  08:11 eval_distributed.py
+-rw-r--r--. 1 root root      2770  1 juin  08:10 eval_sequential.py
+-rw-r--r--. 1 root root      2536  1 juin  07:52 o
+-rwxr-x---. 1 root root      3214  1 juin  07:10 lstm_train.py
+-rwxr-x---. 1 root root      2090 29 mai   00:09 tester_le_modele.py
+-rw-r--r--. 1 root root      2139 28 mai   18:36 train_lstm.py
+-rwxr-x---. 1 root root      6822 21 mai   01:30 new_phrases.txt
+-rwxr-x---. 1 root root   8774480 21 mai   01:30 sentences.csv
+-rwxr-x---. 1 root root      1288 20 mai   01:24 insert_phrases.py
+-rwxr-x---. 1 root root       277 18 mai   17:10 phrases_test.txt
+
+*******************************************************************************
+
+
+
