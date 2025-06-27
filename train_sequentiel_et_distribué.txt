@@ -1,0 +1,421 @@
+
+
+**********************
+**************************
+******************************
+reperoire de travail
+******************************
+**************************
+**********************
+
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+**********************
+**************************
+******************************
+module d'entrainement
+******************************
+**************************
+**********************
+
+[root@master1 stage]# cd lstm-trainer/
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# ls
+Dockerfile  lstm_train.py  tester_le_modele.py  train_dis
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# #entrainement d'une manière séquentielle ===>
+
+*******************************************************************************
+
+**********************
+**************************
+******************************
+le dockerfile utilisé pour créer l'image qui va etre utilisée pour créer un conteneur qui va exécuter le script séquentiellement 
+******************************
+**************************
+**********************
+
+
+[root@master1 lstm-trainer]# cat Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+#COPY lstm_train.py /app/
+#COPY tester_le_modele.py /app/
+
+RUN pip install pandas numpy tensorflow
+
+CMD ["bash", "-c", "python3 lstm_train.py && python3 tester_le_modele.py"]
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# #le script est mis aussi dans le volume partagé au lieu de le copier dans le docker file, juste pour ne pas reconstruire l'image 
+apres chaque modification dans le script (parce que les pods ils ont accès au volumes partagé /mnt/nfs-share/lstm_data/) ALAORS :
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# cat /mnt/nfs-share/lstm_data/lstm_train.py
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import tensorflow.keras.utils as ku
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout
+from tensorflow.keras.models import load_model
+import pickle
+import gc               # Pour la libération mémoire
+import subprocess       # Pour lancer le script de test automatiquement
+
+print("Nouvelle exécution du script LSTM : entraînement et sauvegarde...")
+
+# 1. Charger et préparer les données
+sentence_df = pd.read_csv('sentences.csv')
+sentence_df = sentence_df.dropna()
+sentences = sentence_df.sentence.values
+sentences = sentences[:4000]  # Limiter les données si nécessaire
+
+# 2. Tokenisation
+tokenizer = Tokenizer()
+def convertSentencesIntoSeqOfTokens(sentences):
+    tokenizer.fit_on_texts(sentences)
+    total_words_in_vocab = len(tokenizer.word_index) + 1
+    input_sequences = []
+    for sentence in sentences:
+        seq_of_tokens = tokenizer.texts_to_sequences([sentence])[0]
+        for i in range(1, len(seq_of_tokens)):
+            n_gram = seq_of_tokens[:i+1]
+            input_sequences.append(n_gram)
+    return input_sequences, total_words_in_vocab
+
+input_sequences, total_words_in_vocab = convertSentencesIntoSeqOfTokens(sentences)
+
+# 3. Padding
+def generateSameLengthSentencesByPadding(sequences):
+    max_seq_len = max([len(x) for x in sequences])
+    padded_sequences = np.array(pad_sequences(sequences, maxlen=max_seq_len, padding='pre'))
+    return padded_sequences, max_seq_len
+
+padded_sequences, max_seq_len = generateSameLengthSentencesByPadding(input_sequences)
+
+# 4. Génération des entrées (X) et étiquettes (y)
+def generatePredictorsAndLabels(padded_sequences):
+    inputs, label = padded_sequences[:, :-1], padded_sequences[:, -1]
+    label = ku.to_categorical(label, num_classes=total_words_in_vocab)
+    return inputs, label
+
+inputs, label = generatePredictorsAndLabels(padded_sequences)
+
+# 5. Construction du modèle
+input_length = max_seq_len - 1
+model = Sequential()
+model.add(Embedding(total_words_in_vocab, 10, input_length=input_length))
+model.add(LSTM(100))
+model.add(Dropout(0.1))
+model.add(Dense(total_words_in_vocab, activation='softmax'))
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+model.build(input_shape=(None, input_length))
+model.summary()
+
+# 6. Entraînement
+model.fit(inputs, label, epochs=3)
+
+# 7. Sauvegarde du modèle
+model.save('lstm_text_autocomplete.keras')
+
+# 8. Sauvegarde du tokenizer
+with open('tokenizer.pkl', 'wb') as f:
+    pickle.dump(tokenizer, f)
+
+# 9. Lancer automatiquement le test
+print("Lancement du test du modèle nouvellement entraîné...")
+subprocess.run(["python3", "tester_le_modele.py"])
+
+# 10. Libération explicite de la mémoire
+del model, tokenizer, inputs, label, input_sequences, padded_sequences
+gc.collect()
+
+print("Script terminé (une seule exécution)")
+
+
+
+model.save("lstm_text_autocomplete.keras", save_format="keras")
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# ls
+Dockerfile  lstm_train.py  tester_le_modele.py  train_dis
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# cat /mnt/nfs-share/lstm_data/tester_le_modele.py
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import load_model
+import pickle
+import json
+
+# Charger le modèle
+model = load_model('lstm_text_autocomplete.keras')
+
+# Charger le tokenizer sauvegardé
+with open('tokenizer.pkl', 'rb') as f:
+    tokenizer = pickle.load(f)
+
+# Définir les paramètres du modèle
+max_sequence_len = model.input_shape[1]
+total_words_in_vocab = model.output_shape[1]
+
+# Fonction de génération de texte
+def generate_autocomplete_suggestions(seed_sentence, no_of_next_words, model, max_sequence_len):
+    for _ in range(no_of_next_words):
+        sequence = tokenizer.texts_to_sequences([seed_sentence])[0]
+        padded_sequence = pad_sequences([sequence], maxlen=max_sequence_len, padding='pre')
+        predictions = model.predict(padded_sequence, verbose=0)
+        predicted_label = np.argmax(predictions, axis=1)[0]
+        next_word = tokenizer.index_word.get(predicted_label, '')
+        seed_sentence += " " + next_word
+    return seed_sentence
+
+#  Charger les phrases de test
+with open('phrases_test.txt', 'r', encoding='utf-8') as f:
+    test_phrases = [line.strip() for line in f if line.strip()]
+
+#  Générer et afficher les complétions
+print("=== AUTOCOMPLÉTION ===")
+for idx, phrase in enumerate(test_phrases, 1):
+    completed = generate_autocomplete_suggestions(phrase, 3, model, max_sequence_len)  # Seulement 3 mots prédits
+    print(f"\n Phrase {idx} :")
+    print(f"   Entrée : {phrase}")
+    print(f"   Complétée : {completed}")
+
+results = []
+
+for idx, phrase in enumerate(test_phrases, 1):
+    completed = generate_autocomplete_suggestions(phrase, 3, model, max_sequence_len)
+    results.append({
+        "input": phrase,
+        "completed": completed
+    })
+
+#  Sauvegarder en JSON dans le volume partagé
+with open("completions.json", "w", encoding="utf-8") as f:
+    json.dump(results, f, ensure_ascii=False, indent=2)
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# # entrainement d'une manière distribué entre des pods ==>
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# cd train_dis/
+
+*******************************************************************************
+
+[root@master1 train_dis]# ls
+Dockerfile  train_lstm.py
+
+*******************************************************************************
+
+[root@master1 train_dis]# cat Dockerfile
+# Dockerfile.horovod
+FROM horovod/horovod:latest
+
+WORKDIR /app
+COPY train_lstm.py /app/
+
+RUN pip install pandas numpy prometheus_client
+
+#  Exécution directe depuis le volume partagé NFS
+CMD ["python", "/mnt/nfs-share/lstm_data/train_lstm.py"]
+
+*******************************************************************************
+
+[root@master1 train_dis]# cat /mnt/nfs-share/lstm_data/train_lstm.py
+import horovod.tensorflow.keras as hvd
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import pickle
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import tensorflow.keras.utils as ku
+
+#  Initialiser Horovod
+hvd.init()
+
+#  Lire les données
+df = pd.read_csv("/app/data/sentences.csv").dropna()
+sentences = df.sentence.values[:4000]
+
+#  Tokenisation
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(sentences)
+total_words = len(tokenizer.word_index) + 1
+
+#  Génération des séquences
+sequences = []
+for s in sentences:
+    tokens = tokenizer.texts_to_sequences([s])[0]
+    for i in range(1, len(tokens)):
+        sequences.append(tokens[:i+1])
+
+#  Padding et préparation X, y
+max_len = max(len(seq) for seq in sequences)
+padded = pad_sequences(sequences, maxlen=max_len, padding='pre')
+X, y = padded[:, :-1], padded[:, -1]
+y = ku.to_categorical(y, num_classes=total_words)
+
+#  Optimiseur distribué
+opt = tf.keras.optimizers.Adam(learning_rate=0.01 * hvd.size())
+opt = hvd.DistributedOptimizer(opt)
+
+#  Définir le modèle
+model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(total_words, 10, input_length=max_len - 1),
+    tf.keras.layers.LSTM(100),
+    tf.keras.layers.Dropout(0.1),
+    tf.keras.layers.Dense(total_words, activation='softmax')
+])
+
+model.compile(loss='categorical_crossentropy', optimizer=opt)
+
+#  Callbacks (sauvegarde uniquement par le worker 0)
+callbacks = []
+if hvd.rank() == 0:
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+        '/app/data/lstm_horovod.keras',
+        save_best_only=True,   # Sauvegarde uniquement si val_loss s’améliore
+        save_weights_only=False
+    ))
+
+#  Entraînement avec validation
+model.fit(
+    X, y,
+    epochs=15,
+    batch_size=128,
+    validation_split=0.1,           #  Ajout de validation
+    callbacks=callbacks,
+    verbose=1 if hvd.rank() == 0 else 0
+)
+
+#  Sauvegarde du tokenizer par le worker 0
+if hvd.rank() == 0:
+    with open("/app/data/tokenizer_horovod.pkl", "wb") as f:
+        pickle.dump(tokenizer, f)
+
+
+*******************************************************************************
+
+[root@master1 train_dis]# ls
+aaaaaaaaaa  Dockerfile  train_lstm.py
+
+*******************************************************************************
+
+[root@master1 train_dis]# cd ..
+
+*******************************************************************************
+
+[root@master1 lstm-trainer]# cd ..
+
+*******************************************************************************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cat train-cronjob.yaml
+# train-cronjob.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: train-model
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: trainer
+            image: lstm-trainer:test
+            imagePullPolicy: Never
+            volumeMounts:
+            - name: lstm-volume
+              mountPath: /app
+          restartPolicy: OnFailure
+          volumes:
+          - name: lstm-volume
+            nfs:
+              server: 192.168.56.10
+              path: /mnt/nfs-share/lstm_data
+
+*******************************************************************************
+
+[root@master1 stage]# cat lstm-horovod-mpijob.yaml
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: lstm-horovod-job
+  namespace: default
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - name: lstm-trainer
+            image: lstm-horovod:latest
+            imagePullPolicy: Never
+            command: ["python"]
+            args: ["/app/data/train_lstm.py"]
+            volumeMounts:
+            - name: lstm-data
+              mountPath: /app/data
+          restartPolicy: OnFailure
+          volumes:
+          - name: lstm-data
+            nfs:
+              server: 192.168.56.10
+              path: /mnt/nfs-share/lstm_data
+    Worker:
+      replicas: 2
+      template:
+        spec:
+          containers:
+          - name: lstm-trainer
+            image: lstm-horovod:latest
+            imagePullPolicy: Never
+            volumeMounts:
+            - name: lstm-data
+              mountPath: /app/data
+          restartPolicy: OnFailure
+          volumes:
+          - name: lstm-data
+            nfs:
+              server: 192.168.56.10
+              path: /mnt/nfs-share/lstm_data
+
+*******************************************************************************
