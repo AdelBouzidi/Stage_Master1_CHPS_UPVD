@@ -1,0 +1,383 @@
+
+*******************************************************************************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cd lstm-evaluator/
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# ls
+eval-dis.yaml  eval-seq.yaml  lstm-eval-des  lstm-eval-seq  prometheus-config.yaml  prometheus.yml  start.sh
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# # evaluer le modele généré d'une manière séquentiel ===========>
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# cd lstm-eval-seq/
+
+*******************************************************************************
+
+[root@master1 lstm-eval-seq]# ls
+Dockerfile.eval-seq  eval_sequential.py
+
+*******************************************************************************
+
+[root@master1 lstm-eval-seq]# cat Dockerfile.eval-seq
+# Dockerfile.eval-seq
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY eval_sequential.py /app/
+
+RUN pip install flask tensorflow==2.19.0 prometheus_client
+
+CMD ["python3", "eval_sequential.py"]
+
+*******************************************************************************
+
+[root@master1 lstm-eval-seq]# cat eval_sequential.py
+# 📄 eval_sequential.py
+from flask import Flask
+from prometheus_client import Gauge, make_wsgi_app, start_http_server
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+import tensorflow as tf
+import pickle
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import os
+import time
+
+app = Flask(__name__)
+accuracy_gauge = Gauge("lstm_model_accuracy", "Accuracy on predefined sentences", ['mode'])
+
+test_cases = {
+    "i want": ["to", "more", "help", "you", "this"],
+    "please let me know if": ["you", "this", "that", "anything"],
+    "we need to": ["talk", "act", "decide", "change"],
+    "can you send": ["it", "me", "the", "details"],
+    "i am going to": ["send", "leave", "meet", "try"],
+    "let me know when": ["you", "it", "they", "things"],
+    "i do not want to": ["wait", "talk", "go", "repeat"],
+    "i have to": ["go", "check", "finish", "start"],
+    "please respond with": ["details", "feedback", "confirmation", "answers"],
+    "we will be": ["ready", "done", "there", "available"]
+}
+
+def evaluer_et_exposer(model_path, tokenizer_path):
+    try:
+        model = tf.keras.models.load_model(model_path)
+        with open(tokenizer_path, "rb") as f:
+            tokenizer = pickle.load(f)
+        index_word = tokenizer.index_word
+        max_len = model.input_shape[1]
+
+        correct = 0
+        total = 0
+        for sentence, expected_words in test_cases.items():
+            seq = tokenizer.texts_to_sequences([sentence])[0]
+            padded = pad_sequences([seq], maxlen=max_len, padding="pre")
+            pred = model.predict(padded, verbose=0)
+            next_idx = pred.argmax()
+            predicted_word = index_word.get(next_idx, "")
+            if predicted_word.lower() in expected_words:
+                correct += 1
+            total += 1
+        accuracy = correct / total if total else 0
+        accuracy_gauge.labels(mode="sequential").set(accuracy)
+        print(f"[Sequential] Accuracy: {accuracy:.2f} ({correct}/{total})")
+    except Exception as e:
+        print(f" Evaluation error: {e}")
+
+@app.route("/evaluate")
+def manual_evaluate():
+    evaluer_et_exposer("/app/data/lstm_text_autocomplete.keras", "/app/data/tokenizer.pkl")
+    return "Manual evaluation triggered. Check /metrics.\n"
+
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
+
+if __name__ == "__main__":
+    print(" Starting sequential evaluator service on port 6006...")
+    start_http_server(6006)
+    model_path = "/app/data/lstm_text_autocomplete.keras"
+    tokenizer_path = "/app/data/tokenizer.pkl"
+    while True:
+        evaluer_et_exposer(model_path, tokenizer_path)
+        time.sleep(60)
+
+*******************************************************************************
+
+[root@master1 lstm-eval-seq]# ls
+Dockerfile.eval-seq  eval_sequential.py
+
+*******************************************************************************
+
+[root@master1 lstm-eval-seq]# cd ..
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# ls
+eval-dis.yaml  eval-seq.yaml  lstm-eval-des  lstm-eval-seq  prometheus-config.yaml  prometheus.yml  start.sh
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# cat eval-seq.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-seq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eval-seq
+  template:
+    metadata:
+      labels:
+        app: eval-seq
+    spec:
+      containers:
+      - name: eval-seq
+        image: eval-seq:v2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6006
+        env:
+        - name: EVAL_MODE
+          value: "sequential"
+        volumeMounts:
+        - name: lstm-data
+          mountPath: /app/data
+      volumes:
+      - name: lstm-data
+        nfs:
+          server: 192.168.56.10
+          path: /mnt/nfs-share/lstm_data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eval-seq-service
+spec:
+  selector:
+    app: eval-seq
+  type: LoadBalancer
+  ports:
+  - port: 6006
+    targetPort: 6006
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# ls
+eval-dis.yaml  eval-seq.yaml  lstm-eval-des  lstm-eval-seq  prometheus-config.yaml  prometheus.yml  start.sh
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# cat prometheus.yml
+global:
+  evaluation_interval: 1m
+  scrape_interval: 1m
+  scrape_timeout: 10s
+
+rule_files:
+  - /etc/config/recording_rules.yml
+  - /etc/config/alerting_rules.yml
+  - /etc/config/rules
+  - /etc/config/alerts
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'lstm-eval-seq'
+    static_configs:
+      - targets: ['192.168.56.37:6006']
+        labels:
+          mode: 'sequential'
+
+  - job_name: 'lstm-eval-dis'
+    static_configs:
+      - targets: ['192.168.56.39:6007']
+        labels:
+          mode: 'distributed'
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# ls
+eval-dis.yaml  eval-seq.yaml  lstm-eval-des  lstm-eval-seq  prometheus-config.yaml  prometheus.yml  start.sh
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# cd lstm-eval-des/ ### POUR evaluer le modele généré d'une manière distribué =W
+
+*******************************************************************************
+
+[root@master1 lstm-eval-des]# cd lstm-eval-des/ ### POUR evaluer le modele généré d'une manière distribué =>
+bash: cd: lstm-eval-des/: Aucun fichier ou dossier de ce type
+
+*******************************************************************************
+
+[root@master1 lstm-eval-des]# ls
+Dockerfile.eval-dis  eval_distributed.py
+
+*******************************************************************************
+
+[root@master1 lstm-eval-des]# cat Dockerfile.eval-dis
+FROM tensorflow/tensorflow:2.9.2
+
+WORKDIR /app
+
+COPY eval_distributed.py /app/
+
+RUN pip install flask prometheus_client
+
+CMD ["python3", "eval_distributed.py"]
+
+*******************************************************************************
+
+[root@master1 lstm-eval-des]# cat eval_distributed.py
+# 📄 eval_distributed.py (corrigé pour Horovod output)
+from flask import Flask
+from prometheus_client import Gauge, make_wsgi_app, start_http_server
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+import tensorflow as tf
+import pickle
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import os
+import time
+
+app = Flask(__name__)
+accuracy_gauge = Gauge("lstm_model_accuracy", "Accuracy on predefined sentences", ['mode'])
+
+# 🔸 Jeu de test
+test_cases = {
+    "i want": ["to", "more", "help", "you", "this"],
+    "please let me know if": ["you", "this", "that", "anything"],
+    "we need to": ["talk", "act", "decide", "change"],
+    "can you send": ["it", "me", "the", "details"],
+    "i am going to": ["send", "leave", "meet", "try"],
+    "let me know when": ["you", "it", "they", "things"],
+    "i do not want to": ["wait", "talk", "go", "repeat"],
+    "i have to": ["go", "check", "finish", "start"],
+    "please respond with": ["details", "feedback", "confirmation", "answers"],
+    "we will be": ["ready", "done", "there", "available"]
+}
+
+def evaluer_et_exposer(model_path, tokenizer_path):
+    try:
+        model = tf.keras.models.load_model(model_path)
+        with open(tokenizer_path, "rb") as f:
+            tokenizer = pickle.load(f)
+        index_word = tokenizer.index_word
+        max_len = model.input_shape[1]
+
+        correct = 0
+        total = 0
+        for sentence, expected_words in test_cases.items():
+            seq = tokenizer.texts_to_sequences([sentence])[0]
+            padded = pad_sequences([seq], maxlen=max_len, padding="pre")
+            pred = model.predict(padded, verbose=0)
+            next_idx = pred.argmax()
+            predicted_word = index_word.get(next_idx, "")
+            if predicted_word.lower() in expected_words:
+                correct += 1
+            total += 1
+        accuracy = correct / total if total else 0
+        accuracy_gauge.labels(mode="distributed").set(accuracy)
+        print(f" [Distributed] Accuracy: {accuracy:.2f} ({correct}/{total})")
+    except Exception as e:
+        print(f" Evaluation error: {e}")
+
+@app.route("/evaluate")
+def manual_evaluate():
+    evaluer_et_exposer("/app/data/lstm_horovod.keras", "/app/data/tokenizer_horovod.pkl")
+    return "Manual evaluation triggered. Check /metrics.\n"
+
+# Prometheus exposition
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/metrics': make_wsgi_app()
+})
+
+if __name__ == "__main__":
+    print(" Starting distributed evaluator service on port 6007...")
+    start_http_server(6007)
+
+    model_path = "/app/data/lstm_horovod.keras"
+    tokenizer_path = "/app/data/tokenizer_horovod.pkl"
+
+    #  Lancer immédiatement une première évaluation (important pour Prometheus !)
+    evaluer_et_exposer(model_path, tokenizer_path)
+
+    while True:
+        evaluer_et_exposer(model_path, tokenizer_path)
+        time.sleep(60)
+
+*******************************************************************************
+
+[root@master1 lstm-eval-des]# cd ..
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# ls
+eval-dis.yaml  eval-seq.yaml  lstm-eval-des  lstm-eval-seq  prometheus-config.yaml  prometheus.yml  start.sh
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]# cat eval-dis.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-dis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eval-dis
+  template:
+    metadata:
+      labels:
+        app: eval-dis
+    spec:
+      containers:
+      - name: eval-dis
+        image: eval-dis:v5
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6007   #  correction ici
+        env:
+        - name: EVAL_MODE
+          value: "distributed"
+        volumeMounts:
+        - name: lstm-data
+          mountPath: /app/data
+      volumes:
+      - name: lstm-data
+        nfs:
+          server: 192.168.56.10
+          path: /mnt/nfs-share/lstm_data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eval-dis-service
+spec:
+  selector:
+    app: eval-dis
+  type: LoadBalancer
+  ports:
+  - port: 6007         #  expose vers l’extérieur
+    targetPort: 6007   #  vers le container
+
+*******************************************************************************
+
+[root@master1 lstm-evaluator]#
