@@ -1,0 +1,93 @@
+
+*******************************************************************************
+
+**********************
+**************************
+******************************
+reperoire de travail
+******************************
+**************************
+**********************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cd lstm-inserter/
+
+*******************************************************************************
+
+[root@master1 lstm-inserter]# ls
+Dockerfile  insert_phrases.py
+
+*******************************************************************************
+
+[root@master1 lstm-inserter]# cat Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY insert_phrases.py /app/
+
+RUN pip install pandas
+
+CMD ["python3", "insert_phrases.py"]
+
+*******************************************************************************
+
+**********************
+**************************
+******************************
+script d'insertion
+******************************
+**************************
+**********************
+
+[root@master1 lstm-inserter]# cat /mnt/nfs-share/lstm_data/insert_phrases.py
+import time
+import pandas as pd
+
+# Configuration
+CSV_PATH = "sentences.csv"
+NEW_PHRASES_PATH = "new_phrases.txt"
+INSERT_COUNT = 20
+
+def insert_phrases_once():
+    # Lire les nouvelles phrases
+    with open(NEW_PHRASES_PATH, "r") as f:
+        new_phrases = [line.strip() for line in f.readlines() if line.strip()]
+
+    if not new_phrases:
+        print("Aucune nouvelle phrase disponible.")
+        return
+
+    # Lire le fichier CSV existant
+    df = pd.read_csv(CSV_PATH)
+
+    # Sélection des 20 premières phrases
+    to_insert = new_phrases[:INSERT_COUNT]
+    remaining_phrases = new_phrases[INSERT_COUNT:]
+
+    # Créer un DataFrame temporaire avec ces phrases
+    insert_df = pd.DataFrame(to_insert, columns=[df.columns[0]])
+
+    # Insertion dans le CSV (à partir de la ligne 2)
+    insert_index = 1
+    df = pd.concat([df.iloc[:insert_index], insert_df, df.iloc[insert_index:]]).reset_index(drop=True)
+
+    # Sauvegarder le fichier CSV
+    df.to_csv(CSV_PATH, index=False)
+    print(f"{len(to_insert)} phrases insérées à {time.ctime()}")
+
+    # Réécrire le fichier new_phrases.txt avec les phrases restantes
+    with open(NEW_PHRASES_PATH, "w") as f:
+        f.writelines([phrase + "\n" for phrase in remaining_phrases])
+
+if __name__ == "__main__":
+    insert_phrases_once()
+
+*******************************************************************************
+
