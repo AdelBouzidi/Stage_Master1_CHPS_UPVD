@@ -1,0 +1,340 @@
+
+*******************************************************************************
+
+**********************
+**************************
+******************************
+reperoire de travail
+******************************
+**************************
+**********************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cd lstm-webapp
+
+*******************************************************************************
+
+[root@master1 lstm-webapp]# ls
+app.py  Dockerfile  templates
+
+*******************************************************************************
+
+[root@master1 lstm-webapp]# cat app.py
+from flask import Flask, render_template
+import os
+import json
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    json_path = "/app/data/completions.json"  #chemin absolu
+    if os.path.exists(json_path):
+        with open(json_path, encoding="utf-8") as f:
+            completions = json.load(f)
+    else:
+        completions = [{"input": "Modèle non encore prêt", "completed": "En attente..."}]
+    return render_template("index.html", completions=completions)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+
+*******************************************************************************
+
+[root@master1 lstm-webapp]# cat Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY app.py /app/
+COPY templates/ /app/templates/
+
+RUN pip install flask
+
+CMD ["python3", "app.py"]
+
+*******************************************************************************
+
+[root@master1 lstm-webapp]# cat templates/index.html
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>LSTM Predictions</title></head>
+<body>
+    <h1>📄 Résultats de test LSTM</h1>
+    {% for row in completions %}
+        <p><b>Entrée :</b> {{ row.input }}<br>
+           <b>Complétée :</b> {{ row.completed }}</p><hr>
+    {% endfor %}
+</body>
+</html>
+
+*******************************************************************************
+
+[root@master1 lstm-webapp]# cd ..
+
+*******************************************************************************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cat webapp-deployment.yaml
+# webapp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-webapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-webapp
+  template:
+    metadata:
+      labels:
+        app: flask-webapp
+    spec:
+      containers:
+      - name: webapp
+        image: flask-lstm-ui
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5000
+        volumeMounts:
+        - name: lstm-volume
+          mountPath: /app/data
+      volumes:
+      - name: lstm-volume
+        nfs:
+          server: 192.168.56.10
+          path: /mnt/nfs-share/lstm_data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-webapp-service
+spec:
+  selector:
+    app: flask-webapp
+  type: LoadBalancer
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 5000
+
+*******************************************************************************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cd lstm-webapp2/
+
+*******************************************************************************
+
+[root@master1 lstm-webapp2]# ls
+app.py  Dockerfile  templates
+
+*******************************************************************************
+
+[root@master1 lstm-webapp2]# cat app.py
+from flask import Flask, request, render_template, jsonify
+import json
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import pickle
+
+app = Flask(__name__)
+
+# Charger modèle et tokenizer
+model = load_model("/app/data/lstm_text_autocomplete.keras")
+with open("/app/data/tokenizer.pkl", "rb") as f:
+    tokenizer = pickle.load(f)
+
+max_sequence_len = model.input_shape[1]
+index_word = tokenizer.index_word
+
+@app.route("/")
+def home():
+    return render_template("interactive.html")
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    data = request.json
+    seed_text = data.get("text", "")
+    sequence = tokenizer.texts_to_sequences([seed_text])[0]
+    padded = pad_sequences([sequence], maxlen=max_sequence_len, padding="pre")
+    predictions = model.predict(padded, verbose=0)
+    predicted_label = predictions.argmax()
+    next_word = index_word.get(predicted_label, "")
+    return jsonify({"next_word": next_word})
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+*******************************************************************************
+
+[root@master1 lstm-webapp2]# cat Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY app.py /app/
+COPY templates/ /app/templates/
+
+RUN pip install flask tensorflow pandas numpy
+
+CMD ["python3", "app.py"]
+
+*******************************************************************************
+
+[root@master1 lstm-webapp2]# cat templates/interactive.html
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Complétion Automatique</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 80px;
+            background-color: #f9f9f9;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 36px;
+        }
+
+        input[type="text"] {
+            width: 50%;
+            padding: 12px;
+            font-size: 18px;
+            border: 2px solid #ccc;
+            border-radius: 6px;
+            margin-top: 30px;
+        }
+
+        #prediction {
+            font-size: 22px;
+            margin-top: 30px;
+            color: #1e88e5;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>✨Complétion Automatique</h1>
+    <input type="text" id="textInput" placeholder="Tapez une phrase..." />
+    <div id="prediction">Mot prédit : <span id="nextWord">...</span></div>
+
+    <script>
+        const inputField = document.getElementById("textInput");
+        const nextWordSpan = document.getElementById("nextWord");
+
+        let lastPrediction = "";
+
+        inputField.addEventListener("input", async () => {
+            const text = inputField.value.trim();
+            const wordCount = text.split(/\s+/).length;
+
+            if (wordCount >= 3) {
+                const response = await fetch("/predict", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+                lastPrediction = data.next_word;
+                nextWordSpan.textContent = lastPrediction || "...";
+            } else {
+                nextWordSpan.textContent = "...";
+            }
+        });
+
+        inputField.addEventListener("keydown", (event) => {
+            if (event.key === "Tab") {
+                event.preventDefault();
+                if (lastPrediction) {
+                    inputField.value += " " + lastPrediction;
+                    lastPrediction = "";
+                    nextWordSpan.textContent = "...";
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+
+*******************************************************************************
+
+[root@master1 lstm-webapp2]# cd ..
+
+*******************************************************************************
+
+[root@master1 stage]# ls
+crb.json  insert-cronjob.yaml       lstm-inserter  lstm-webapp2               scheduler-rbac.yaml              start_evaluation.sh    train-cronjob.yaml
+del__.sh  lstm-evaluator            lstm-trainer   monitor_pods.sh            senario_pods_by_10_min.txt       start_horovod_loop.sh  webapp2-deployment.yaml
+helm      lstm-horovod-mpijob.yaml  lstm-webapp    prometheus-server-cm.yaml  start_desribue_et_sequentiel.sh  start_seq.sh           webapp-deployment.yaml
+
+*******************************************************************************
+
+[root@master1 stage]# cat webapp2-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-webapp2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-webapp2
+  template:
+    metadata:
+      labels:
+        app: flask-webapp2
+    spec:
+      containers:
+      - name: webapp
+        image: flask-lstm-ui2
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5000
+        volumeMounts:
+        - name: lstm-volume
+          mountPath: /app/data
+      volumes:
+      - name: lstm-volume
+        nfs:
+          server: 192.168.56.10
+          path: /mnt/nfs-share/lstm_data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-webapp2-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: flask-webapp2
+  ports:
+  - port: 80
+    targetPort: 5000
+
+*******************************************************************************
